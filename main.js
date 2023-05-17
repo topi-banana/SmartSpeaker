@@ -1,7 +1,6 @@
 const { joinVoiceChannel, EndBehaviorType, entersState, VoiceConnectionStatus, createAudioResource, StreamType, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior, generateDependencyReport } = require('@discordjs/voice')
 const { OpusEncoder } = require('@discordjs/opus')
 const wav = require('wav')
-const {PythonShell} = require('python-shell');
 const fs = require('fs')
 console.log(generateDependencyReport())
 const Discord = require('discord.js')
@@ -19,8 +18,6 @@ if( !['tiny','base','small','medium','large'].includes(process.env.WHISPER_MODEL
   console.log(`[WARN] env:WHISPER_MODEL="${process.env.WHISPER_MODEL}" is invalid model name.`)
   console.log(`You can choose from [ tiny base small medium large ] `)
 }
-
-const whisper = new PythonShell('whisperAI.py',{ args: [process.env.WHISPER_MODEL] })
 
 client.on('ready', async () => {
   console.log('Ready')
@@ -93,15 +90,9 @@ client.on('messageCreate', async interaction => {
       console.log(`Stream from user ${userId} ended`)
       writer.end(() => {
         file.close()
-        whisper.send(filePath)
         console.log((new Date).getTime())
       })
       audio.destroy()
-    })
-
-    whisper.on('message', (data) => {
-      console.log((new Date).getTime())
-      interaction.channel.send(data)
     })
   })
 })
