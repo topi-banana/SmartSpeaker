@@ -3,7 +3,6 @@ const { OpusEncoder } = require('@discordjs/opus')
 const wav = require('wav')
 const fs = require('fs')
 const request = require('request')
-const FormData = require('form-data')
 console.log(generateDependencyReport())
 const Discord = require('discord.js')
 const client = new Discord.Client({
@@ -17,6 +16,15 @@ if( !process.env.WHISPER_HOST ){
   throw '[ERROR] env:WHISPER_HOST not found'
 }else{
   new URL(process.env.WHISPER_HOST)
+}
+
+if( process.env.UNLINK_CACHE.toLowerCase() == 'true' ){
+  process.env.UNLINK_CACHE = true
+}else
+if( process.env.UNLINK_CACHE.toLowerCase() == 'false' ){
+  process.env.UNLINK_CACHE = false
+}else{
+  throw `[ERROR] env:UNLINK_CACHE="${process.env.UNLINK_CACHE}" is invalid value`
 }
 
 client.on('ready', async () => {
@@ -95,6 +103,7 @@ client.on('messageCreate', async interaction => {
       writer.end(async () => {
         file.close()
         console.log((new Date).getTime())
+        // use Docker image -> [onerahmet/openai-whisper-asr-webservice]
         let url = new URL('asr', process.env.WHISPER_HOST)
         url.searchParams = new URLSearchParams({
           method: 'openai-whisper',
@@ -103,8 +112,6 @@ client.on('messageCreate', async interaction => {
           output: 'txt',
           language: process.env.WHISPER_LANG,
         })
-        const form = new FormData()
-        form.append('audio_file', fs.createReadStream(filePath))
         request({
           url: url,
           method: 'POST',
@@ -118,6 +125,11 @@ client.on('messageCreate', async interaction => {
           body = body.trim()
           if (!body) return
           interaction.channel.send(body)
+          if ( !process.env.UNLINK_CACHE ) return
+          fs.unlink(filePath, err => {
+            if (err) throw err;
+            console.log('Deleted')
+          })
         })
       })
       audio.destroy()
