@@ -2,6 +2,8 @@ const { joinVoiceChannel, EndBehaviorType, entersState, VoiceConnectionStatus, c
 const { OpusEncoder } = require('@discordjs/opus')
 const wav = require('wav')
 const fs = require('fs')
+const request = require('request')
+const FormData = require('form-data')
 console.log(generateDependencyReport())
 const Discord = require('discord.js')
 const client = new Discord.Client({
@@ -11,12 +13,10 @@ const client = new Discord.Client({
 
 require('dotenv').config()
 
-if( !process.env.WHISPER_MODEL ){
-  throw '[ERROR] env:WHISPER_MODEL not found'
-}else
-if( !['tiny','base','small','medium','large'].includes(process.env.WHISPER_MODEL) ){
-  console.log(`[WARN] env:WHISPER_MODEL="${process.env.WHISPER_MODEL}" is invalid model name.`)
-  console.log(`You can choose from [ tiny base small medium large ] `)
+if( !process.env.WHISPER_HOST ){
+  throw '[ERROR] env:WHISPER_HOST not found'
+}else{
+  new URL(process.env.WHISPER_HOST)
 }
 
 client.on('ready', async () => {
@@ -54,6 +54,7 @@ client.on('messageCreate', async interaction => {
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf: false
   })
+  let now = false
   //const player = createAudioPlayer()
   //connection.subscribe(player)
   const format = {
@@ -66,13 +67,15 @@ client.on('messageCreate', async interaction => {
   }
   const opusDecoder = new OpusEncoder(format.sampleRate, format.channels)
   connection.receiver.speaking.on('start', async (userId) => {
+    if (now) return
+    now = true
     const user = await client.users.fetch(userId)
     if (user.bot) return
     console.log(`Stream from user ${user.username} started`)
     const audio = connection.receiver.subscribe(userId, {
       end: {
         behavior: EndBehaviorType.AfterSilence,
-        duration: 500,
+        duration: 200,
       },
     })
     
@@ -88,9 +91,34 @@ client.on('messageCreate', async interaction => {
     
     audio.on('end', async () => {
       console.log(`Stream from user ${userId} ended`)
-      writer.end(() => {
+      now = false
+      writer.end(async () => {
         file.close()
         console.log((new Date).getTime())
+        let url = new URL('asr', process.env.WHISPER_HOST)
+        url.searchParams = new URLSearchParams({
+          method: 'openai-whisper',
+          task: 'transcribe',
+          encode: 'true',
+          output: 'txt',
+          language: process.env.WHISPER_LANG,
+        })
+        const form = new FormData()
+        form.append('audio_file', fs.createReadStream(filePath))
+        request({
+          url: url,
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Content-Type': 'multipart/form-data'
+          },
+          formData: {audio_file: fs.createReadStream(filePath)}
+        },(err, res, body='') => {
+          console.log((new Date).getTime())
+          body = body.trim()
+          if (!body) return
+          interaction.channel.send(body)
+        })
       })
       audio.destroy()
     })
@@ -100,6 +128,6 @@ client.on('messageCreate', async interaction => {
 client.login(process.env.DISCORD_TOKEN)
 
 process.on('exit', exitCode => {
-  whisper.send('exit')
+  //whisper.send('exit')
 })
 process.on('SIGINT', () => process.exit(0))
