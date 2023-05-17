@@ -1,6 +1,7 @@
 const { joinVoiceChannel, EndBehaviorType, entersState, VoiceConnectionStatus, createAudioResource, StreamType, createAudioPlayer, AudioPlayerStatus, NoSubscriberBehavior, generateDependencyReport } = require('@discordjs/voice')
 const { OpusEncoder } = require('@discordjs/opus')
-const { encode } = require('wav-encoder')
+const wav = require('wav')
+const {PythonShell} = require('python-shell');
 const fs = require('fs')
 console.log(generateDependencyReport())
 const Discord = require('discord.js')
@@ -10,6 +11,16 @@ const client = new Discord.Client({
 })
 
 require('dotenv').config()
+
+if( !process.env.WHISPER_MODEL ){
+  throw '[ERROR] env:WHISPER_MODEL not found'
+}else
+if( !['tiny','base','small','medium','large'].includes(process.env.WHISPER_MODEL) ){
+  console.log(`[WARN] env:WHISPER_MODEL="${process.env.WHISPER_MODEL}" is invalid model name.`)
+  console.log(`You can choose from [ tiny base small medium large ] `)
+}
+
+const whisper = new PythonShell('whisperAI.py',{ args: [process.env.WHISPER_MODEL] })
 
 client.on('ready', async () => {
   console.log('Ready')
@@ -46,58 +57,58 @@ client.on('messageCreate', async interaction => {
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfDeaf: false
   })
-  const player = createAudioPlayer()
-  connection.subscribe(player)
-  const VCconfig = {
-    duration: 500,
-    isNow: false,
-    decode: {
-      rate: 48000,
-      channel: 2
-    },
-    encode: {
-      rate: 48000,
-      //channel: 2,
-    }
+  //const player = createAudioPlayer()
+  //connection.subscribe(player)
+  const format = {
+    audioFormat: 1, // PCM
+    channels: 1, // モノラル
+    sampleRate: 48000, // サンプリングレート
+    byteRate: 48000 * 2, // サンプリングレート * 1チャンネルあたりのバイト数
+    blockAlign: 2, // 1チャンネルあたりのバイト数
+    bitsPerSample: 16 // 量子化ビット数
   }
-  console.log(VCconfig)
-  const opusDecoder = new OpusEncoder(VCconfig.decode.rate, VCconfig.decode.channel);
-  connection.receiver.speaking.on('start', (userId) => {
-    if (VCconfig.isNow) return
-    VCconfig.isNow = true
-    console.log(`Stream from user ${userId} has started`)
+  const opusDecoder = new OpusEncoder(format.sampleRate, format.channels)
+  connection.receiver.speaking.on('start', async (userId) => {
+    const user = await client.users.fetch(userId)
+    if (user.bot) return
+    console.log(`Stream from user ${user.username} started`)
     const audio = connection.receiver.subscribe(userId, {
       end: {
         behavior: EndBehaviorType.AfterSilence,
-        duration: VCconfig.duration,
+        duration: 500,
       },
-    });
-    const OpusStream = []
+    })
     
+    const filePath = `./tmp/${(new Date).getTime()}.wav`
+    const file = fs.createWriteStream(filePath)
+    const writer = new wav.Writer(format)
+    writer.pipe(file)
+
     audio.on('data', async (chunk) => {
-      const pcmData = opusDecoder.decode(chunk);
-      const decodedChunk = pcmData
-      OpusStream.push(decodedChunk)
-    });
+      const pcmData = opusDecoder.decode(chunk)
+      writer.write(pcmData)
+    })
     
     audio.on('end', async () => {
-      VCconfig.isNow = false
-      console.log(`Stream from user ${userId} has ended`);
-      const wavData = await encode({
-        format: 'wav',
-        sampleRate: VCconfig.encode.rate,
-        channelData: [new Float32Array(Buffer.concat(OpusStream).buffer)],
-      });
-      const now = new Date();
-      const fileName = `${now.getHours()}h${now.getMinutes()}m${now.getSeconds()}s.wav`;
-      const filePath = `./tmp/${fileName}`;
-      
-      fs.writeFileSync(filePath, Buffer.from(wavData), { encoding: 'binary' });
-      console.log(fileName)
-      //whisper(player,filePath);
-      audio.destroy();
-    });
-  });
+      console.log(`Stream from user ${userId} ended`)
+      writer.end(() => {
+        file.close()
+        whisper.send(filePath)
+        console.log((new Date).getTime())
+      })
+      audio.destroy()
+    })
+
+    whisper.on('message', (data) => {
+      console.log((new Date).getTime())
+      interaction.channel.send(data)
+    })
+  })
 })
 
 client.login(process.env.DISCORD_TOKEN)
+
+process.on('exit', exitCode => {
+  whisper.send('exit')
+})
+process.on('SIGINT', () => process.exit(0))

@@ -4,6 +4,7 @@
     "@discordjs/voice": "^0.16.0",
     "discord.js": "^14.9.0",
     "dotenv": "^16.0.3",
+    "python-shell": "^5.0.0",
     "sodium": "^3.0.2",
     "wav": "^1.0.2"
   }
