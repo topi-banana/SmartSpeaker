@@ -103,7 +103,6 @@ client.on('messageCreate', async interaction => {
       writer.end(async () => {
         file.close()
         console.log((new Date).getTime())
-        // use Docker image -> [onerahmet/openai-whisper-asr-webservice]
         let url = new URL('asr', process.env.WHISPER_HOST)
         url.searchParams = new URLSearchParams({
           method: 'openai-whisper',
@@ -121,15 +120,15 @@ client.on('messageCreate', async interaction => {
           },
           formData: {audio_file: fs.createReadStream(filePath)}
         },(err, res, body='') => {
+          fs.unlink(filePath, err => {
+            if (err) throw err;
+            console.log('Deleted')
+          })
           console.log((new Date).getTime())
           body = body.trim()
           if (!body) return
           interaction.channel.send(body)
           if ( !process.env.UNLINK_CACHE ) return
-          fs.unlink(filePath, err => {
-            if (err) throw err;
-            console.log('Deleted')
-          })
         })
       })
       audio.destroy()
